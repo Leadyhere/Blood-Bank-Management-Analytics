@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "browser_errors": [],
+  "checks": [
+    "real total",
+    "overview charts",
+    "pattern tab",
+    "source tab",
+    "CSV download control",
+    "state filter",
+    "narrow viewport"
+  ],
+  "seconds": 11.512
+}

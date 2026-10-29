@@ -1,187 +1,72 @@
-# Ten-slide presentation content
+# Ten-slide presentation: Apache Spark edition
 
-This is editable slide content and speaker notes, not a rendered PowerPoint file. Add your institution details and screenshots from your actual application run.
+## 1. Title
 
-## Slide 1 — Title
+Blood Bank Management and Inventory Analytics Using Apache Spark. Student, roll number, department and guide.
 
-**Blood Bank Management and Inventory Analytics Using MongoDB**
+Say: “The project combines real public donation analytics with a separate synthetic inventory demonstration.”
 
-Big Data Analytics Mini Project
+## 2. Problem and objectives
 
-Student name · Roll number · Department · Guide · Academic year
+Analyze donation patterns; avoid misleading totals; retain donor/unit/request workflows; prevent expired or duplicate allocation; demonstrate Spark SQL and columnar storage. Educational system, not a clinical product.
 
-Speaker note: Introduce the project as a local educational application using synthetic data.
+## 3. Dataset
 
-## Slide 2 — Problem and objectives
+Official Daily Blood Donations by Blood Group & State, Ministry of Health Malaysia, data.gov.my, CC BY 4.0. Included snapshot: 493,220 observations, 13 collection states, 2006-01-01 to 2026-10-10. Counts sum to 9,896,044 donations, not that many individual records.
 
-- Need a clear view of donors, donated units and hospital demand.
-- Separate usable stock from issued and expired units.
-- Identify low stock and approaching expiry.
-- Analyze donation and request patterns using MongoDB.
+## 4. Architecture and stack
 
-Speaker note: The manual-record comparison is an educational assumption, not a survey of real hospitals.
+CSV → Python validation → Parquet → Spark SQL → Streamlit/Plotly.
 
-## Slide 3 — Technology and architecture
+Python/Pandas for preparation; PyArrow for portable Parquet writes; PySpark + Java 21 for queries; Faker only for management simulation. Local[2] means two local threads. MongoDB is not an active dependency.
 
-**Streamlit → Python operations/analytics → PyMongo → MongoDB**
+## 5. Storage and correctness
 
-- Pandas formats query output; Plotly draws charts.
-- Faker creates synthetic data.
-- python-dotenv loads local configuration.
-- One local MongoDB server and one app process.
+Public daily_donations table; separate management donors/donations/blood_requests. Typed timestamps/counts/string IDs. Readable unit/request links. Immutable versions plus one current manifest. Local thread/file lock and whole-state validation protect writes. Parquet itself has no unique indexes or row transactions.
 
-Speaker note: Explain why separate UI, database operations and analytics files make the project easier to understand and test.
+## 6. Real-data analytical pipelines
 
-## Slide 4 — Database design
+Monthly/yearly/daily trends, ABO distribution, state totals and weekdays. WHERE → GROUP BY → SUM/COUNT → ORDER BY. Overall trends use only 'all'; ABO chart excludes 'all'. Published totals minus ABO = 306, disclosed rather than silently corrected.
 
-- `donors`: identity, group, city and registration details.
-- `donations`: one document per unit, dates, status and request link.
-- `blood_requests`: demand and fulfillment summary.
-- ObjectIds identify documents; unique readable IDs support the interface.
-- One donor → many donations; one request → many issued units.
+The redesigned interface uses Overview, Trends & patterns, and Source & data tabs. Gold points/bars distinguish incomplete months/years. Weekday averages account for the number of represented weekdays; the daily rolling average requires seven consecutive observed dates. Descriptive findings follow the current filters, and summary CSV exports preserve filter context.
 
-Speaker note: Show a real Compass document. Stock is calculated from donation records, with no separate inventory counter.
+## 7. Management demonstration
 
-## Slide 5 — Main application modules
+Register synthetic donor → record unit → add request → FEFO allocation. Exact group only, 42-day demonstration shelf life, demand/stock limits. Available → Issued or Expired. Low stock below 5; near expiry within 7 days. These are not measured real stock values.
 
-- Dashboard: six KPIs, charts and alerts.
-- Donor Management: register and search synthetic donors.
-- Blood Inventory: record donations and inspect expiration.
-- Blood Requests: add requests and fulfill demand.
-- Analytics: inspect pipelines, statistics and explain results.
+## 8. Spark execution and Big Data concepts
 
-Speaker note: Show the sidebar and a populated dashboard screenshot captured during your run.
+Show SQL and EXPLAIN FORMATTED. Discuss FileScan/Parquet, ReadSchema, PushedFilters, HashAggregate and Exchange. Main analytical work executes in Spark; small mutations remain Python. Volume/variety/controlled updates; no distributed benchmark or streaming claim.
 
-## Slide 6 — Correct inventory and FEFO
+## 9. QA and limitations
 
-- Available means unissued and expiration time is still in the future.
-- Default demonstration shelf life: 42 days.
-- Exact requested blood group only.
-- FEFO selects earliest expiration first.
-- Atomic unit update prevents duplicate allocation.
-- Linked issued records determine fulfilled quantities.
+Show actual VERIFICATION.md results. Tests cover duplicates, FEFO, expiry, partial demand, source totals, failed publication, retries, local competing writers, filters and Streamlit. Limitations: local filesystem, snapshot rewrite overhead, retained-version disk growth, partial source coverage, no clinical/security workflow. Warnings and untested areas are disclosed.
 
-Speaker note: Demonstrate a partial request, then explain the single-process lock and the absence of a cross-document transaction. Actual storage rules vary; there is no clinical compatibility logic.
+## 10. Conclusion and live demo
 
-## Slide 7 — Analytics and alerts
+Open real dashboard; filter state/date/ABO; show the discrepancy and SQL plan; switch clearly to simulation; demonstrate one request; show test evidence. Future work: retention/recovery tools and measured performance improvements.
 
-- Inventory by group and donated-group distribution.
-- Monthly donations and monthly requested units.
-- Demand by group, inventory status and top donor cities.
-- Low-stock threshold: below 5 units.
-- Near-expiry window: next 7 days.
-- Historical filters do not change current-stock alerts.
+# Twenty viva answers
 
-Speaker note: Explain that request demand sums units, not request documents, and that all eight blood groups appear even when stock is zero.
+1. **Why Spark now?** The revised course requirement asks for Spark/Hadoop. Spark SQL demonstrates analytical execution over Parquet while keeping the existing Python interface.
+2. **Is Spark a database?** No. It is a processing engine. Parquet files provide persistent storage here.
+3. **Where is the data stored?** In versioned Parquet files under data/spark, selected by current.json manifests.
+4. **Is this Hadoop?** It is Apache Spark, using bundled Hadoop client libraries internally. No HDFS/YARN or Hadoop cluster is deployed.
+5. **What is local[2]?** Two local worker threads, not two machines.
+6. **What is Parquet?** A typed columnar file format that supports efficient projection, compression and row-group statistics.
+7. **Why PyArrow?** It writes standard Parquet portably and reads small operational snapshots without unofficial Windows Hadoop helper binaries.
+8. **What does Spark do?** It executes the main filtering, grouping, joins, summations, sorting and physical plans.
+9. **What does Pandas do?** CSV validation/preparation and chart-output formatting, not the main Spark dashboard aggregation.
+10. **What is an action?** An operation such as collect that triggers Spark's planned computation.
+11. **What is a shuffle?** Data redistribution needed for operations such as grouping; physical plans can show Exchange.
+12. **What is predicate pushdown?** Passing eligible filters toward the data scan so the source can avoid unnecessary reads where supported.
+13. **What replaced MongoDB indexes?** Parquet/Spark scan optimizations, not equivalent unique indexes. Python validates uniqueness under the writer lock.
+14. **How are duplicate units prevented?** Identifier validation before publishing the new state, while local writers are serialized.
+15. **How is stock consistent?** Stock is derived from unit records; unit and request updates are published through one manifest replacement.
+16. **Is this a distributed transaction?** No. It is a local filesystem snapshot protocol, not an ACID distributed storage engine.
+17. **How does FEFO work?** Select available exact-group units by earliest expiry, then unit ID, without exceeding stock or demand.
+18. **Why not sum every CSV row?** 'all' rows are subtotals; adding categories and totals double-counts donations.
+19. **Why are inventory records synthetic?** The public source lacks unit IDs, Rh, issues, requests and expiry. Inventing these as real data would be misleading.
+20. **What did QA find?** A Windows read-only flush error, import-corruption detection weakness and configuration-error handling risk were fixed; failure/retry/concurrency tests and Spark/UI checks provide evidence. Remaining limitations are documented rather than claimed away.
 
-## Slide 8 — Big Data Analytics techniques
-
-- `$match`, `$group`, `$sum`, `$sort`, `$project`, `$count`, `$dateToString`, `$limit`.
-- `insert_many()` batches thousands of synthetic documents.
-- Indexes support selective inventory and date queries.
-- Explain compares a forced scan with indexed access.
-- Volume, variety and velocity demonstrated at classroom scale.
-
-Speaker note: Use the measured results in `VERIFICATION.md` or rerun explain live. Discuss examined documents before drawing conclusions from milliseconds.
-
-## Slide 9 — Testing and limitations
-
-- Validation, duplicate IDs, references and expiration boundaries.
-- FEFO, insufficient stock, partial/complete fulfillment and retries.
-- Aggregation totals and all five Streamlit pages.
-- Synthetic data; one writer process; no clinical decisions.
-- No claim of distributed or million-record performance.
-
-Speaker note: Display actual test output. Clearly distinguish executed automated checks from manual cases still to be demonstrated.
-
-## Slide 10 — Conclusion and future work
-
-- MongoDB documents support a clear unit-based inventory model.
-- Aggregation transforms stored records into useful descriptive reports.
-- Bulk operations and indexes demonstrate database efficiency techniques.
-- Possible additions: schema validators, audit history and analytical exports.
-- Questions and live demonstration.
-
-Speaker note: End by opening the app, rather than claiming unmeasured operational benefits.
-
-# Twenty viva questions and short answers
-
-1. **Why did you choose MongoDB?**
-
-   It stores related information as documents and provides aggregation, indexes and bulk insertion. These features fit the subject's learning objectives and our three record types.
-
-2. **What is Big Data Analytics?**
-
-   It is the process of analyzing large, diverse or rapidly arriving data to find useful patterns and summaries. This project demonstrates some techniques on a small local dataset.
-
-3. **Why is MongoDB called a NoSQL database?**
-
-   It uses a document model rather than the traditional relational table model. NoSQL commonly means “not only SQL”; it does not mean the database has no query language.
-
-4. **What is a MongoDB document?**
-
-   A document is a record of field-value pairs stored in BSON. It can contain strings, numbers, dates, arrays and nested objects.
-
-5. **What is a collection?**
-
-   A collection is a group of MongoDB documents. Our collections are donors, donations and blood_requests.
-
-6. **What is an ObjectId, and why also use readable IDs?**
-
-   ObjectId is the default MongoDB document identifier. Readable IDs such as DNR-000001 are easier to search and explain in the interface. Unique indexes enforce their uniqueness.
-
-7. **What is an aggregation pipeline?**
-
-   It is a sequence of stages that filters, transforms and summarizes documents. Each stage passes its results to the next stage.
-
-8. **What is the use of `$group` and `$sum`?**
-
-   `$group` combines records sharing a key, such as blood group. `$sum: 1` counts records, while `$sum: '$units_requested'` adds the requested quantities.
-
-9. **Why are indexes important?**
-
-   They can help MongoDB find relevant documents without scanning the entire collection. They also use storage and add write overhead, so we choose indexes for actual queries.
-
-10. **How do you identify low-stock groups?**
-
-    Aggregate current available units by group, fill absent groups with zero, and compare each count with the configured threshold, which defaults to five.
-
-11. **How are expired units handled?**
-
-    An unissued unit is expired when its expiration timestamp is at or before now. Queries exclude it from available stock immediately, and the app refresh updates its stored status. It remains in history.
-
-12. **How does FEFO work?**
-
-    FEFO means First Expire, First Out. We sort eligible exact-group units by expiration date, then unit ID, and atomically issue the first one.
-
-13. **How do you prevent the same unit from being issued twice?**
-
-    `find_one_and_update` checks Available status and future expiration while atomically changing status and adding the request link. A later attempt cannot match the already-issued unit.
-
-14. **How do request quantities remain consistent?**
-
-    We count issued donation records linked to the request. Reads derive fulfillment from these records, and reconciliation updates stored summary fields. An in-process lock serializes fulfillment calls; separate writer processes are not supported.
-
-15. **What is the difference between MongoDB and MySQL?**
-
-    MongoDB primarily uses BSON documents and collections. MySQL uses relational tables, SQL and declared relationships/constraints. Both support indexes and useful data analysis; the choice depends on the application and learning goals.
-
-16. **How does this project demonstrate Big Data Analytics?**
-
-    It generates thousands of documents, loads them in batches, summarizes them with database-side pipelines, uses indexes and inspects execution plans. It demonstrates techniques rather than distributed scale.
-
-17. **What are the 3 Vs in this project?**
-
-    Volume is the configurable record count. Variety is the different donor, donation and request fields and types. Velocity is the arrival of new records and subsequent refreshed analytics; there is no high-rate streaming system.
-
-18. **Why use `insert_many()` instead of repeated `insert_one()`?**
-
-    Batching reduces the number of commands and network round trips. MongoDB still stores and indexes each document, but the client sends many records together.
-
-19. **What does `explain()` tell you?**
-
-    It shows the execution plan and, with executionStats, measured time, examined documents and examined index keys. We compare a forced collection scan with an indexed query without inventing benchmark values.
-
-20. **What are the main limitations?**
-
-    The app uses synthetic data, one writer process and no multi-document transaction. It has no clinical eligibility, compatibility, access control or regulated workflow. Its shelf life and age range are demonstration assumptions, and it is not a clinical system.
+Use only measured results from VERIFICATION.md or a new run. Never present old MongoDB timings as Spark performance.

@@ -1,0 +1,52 @@
+{
+  "checked_at_utc": "2026-10-29T12:27:32.985312+00:00",
+  "spark_version": "4.0.1",
+  "ok": true,
+  "source_verification": {
+    "verified_rows": 493220,
+    "sha256": "c74746936383d51c92aecdcf4fda07d26d49bd224cd6ac715214a22e47ea44cc",
+    "ok": true
+  },
+  "operational_audit": {
+    "ok": true,
+    "counts": {
+      "donors": 2500,
+      "donations": 5000,
+      "blood_requests": 1000
+    },
+    "effective_statuses": {
+      "Issued": 2913,
+      "Expired": 801,
+      "Available": 1286
+    },
+    "stale_available_flags": 642,
+    "error_count": 0,
+    "errors": []
+  },
+  "public_totals": {
+    "total": 9896044,
+    "abo_total": 9895738,
+    "total_minus_abo": 306,
+    "rows": 98644,
+    "days": 7588,
+    "states_count": 13
+  },
+  "ui_pages_passed": [
+    "Public Dashboard",
+    "Public Analytics",
+    "Simulated Dashboard",
+    "Simulated Donor Management",
+    "Simulated Blood Inventory",
+    "Simulated Blood Requests",
+    "Simulated Analytics"
+  ],
+  "explain": {
+    "engine": "Apache Spark SQL / Parquet",
+    "seconds": 0.6855,
+    "output_rows": 250,
+    "sql": "SELECT date_format(date, 'yyyy-MM') AS month, SUM(donations) AS count FROM daily_donations WHERE blood_type = 'o' GROUP BY date_format(date, 'yyyy-MM') ORDER BY month",
+    "physical_plan": "== Physical Plan ==\nAdaptiveSparkPlan (9)\n+- Sort (8)\n   +- Exchange (7)\n      +- HashAggregate (6)\n         +- Exchange (5)\n            +- HashAggregate (4)\n               +- Project (3)\n                  +- Filter (2)\n                     +- Scan parquet  (1)\n\n\n(1) Scan parquet \nOutput [3]: [date#1032, blood_type#1034, donations#1035L]\nBatched: true\nLocation: InMemoryFileIndex [file:/C:/Users/avira/Desktop/bda/data/spark/public/versions/02c6e5c66bca48aba45b7611c9507b97/daily_donations.parquet]\nPushedFilters: [IsNotNull(blood_type), EqualTo(blood_type,o)]\nReadSchema: struct<date:timestamp,blood_type:string,donations:bigint>\n\n(2) Filter\nInput [3]: [date#1032, blood_type#1034, donations#1035L]\nCondition : (isnotnull(blood_type#1034) AND (blood_type#1034 = o))\n\n(3) Project\nOutput [2]: [donations#1035L, date_format(date#1032, yyyy-MM, Some(UTC)) AS _groupingexpression#1045]\nInput [3]: [date#1032, blood_type#1034, donations#1035L]\n\n(4) HashAggregate\nInput [2]: [donations#1035L, _groupingexpression#1045]\nKeys [1]: [_groupingexpression#1045]\nFunctions [1]: [partial_sum(donations#1035L)]\nAggregate Attributes [1]: [sum#1046L]\nResults [2]: [_groupingexpression#1045, sum#1047L]\n\n(5) Exchange\nInput [2]: [_groupingexpression#1045, sum#1047L]\nArguments: hashpartitioning(_groupingexpression#1045, 4), ENSURE_REQUIREMENTS, [plan_id=5204]\n\n(6) HashAggregate\nInput [2]: [_groupingexpression#1045, sum#1047L]\nKeys [1]: [_groupingexpression#1045]\nFunctions [1]: [sum(donations#1035L)]\nAggregate Attributes [1]: [sum(donations#1035L)#1044L]\nResults [2]: [_groupingexpression#1045 AS month#1038, sum(donations#1035L)#1044L AS count#1039L]\n\n(7) Exchange\nInput [2]: [month#1038, count#1039L]\nArguments: rangepartitioning(month#1038 ASC NULLS FIRST, 4), ENSURE_REQUIREMENTS, [plan_id=5207]\n\n(8) Sort\nInput [2]: [month#1038, count#1039L]\nArguments: [month#1038 ASC NULLS FIRST], true, 0\n\n(9) AdaptiveSparkPlan\nOutput [2]: [month#1038, count#1039L]\nArguments: isFinalPlan=false\n\n",
+    "note": "One observed run, not a benchmark. Inspect FileScan, PushedFilters and Exchange; no MongoDB indexes exist."
+  },
+  "seconds": 65.931
+}

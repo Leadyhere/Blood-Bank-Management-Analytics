@@ -10,13 +10,12 @@ from datetime import datetime
 from time import perf_counter
 from uuid import uuid4
 
-from bson import ObjectId
-from pymongo.errors import PyMongoError
 
 import analytics
 import operations as ops
 from config import BLOOD_GROUPS, GENDERS, NEAR_EXPIRY_DAYS, utcnow
-from database import connect, create_indexes
+from database import connect, Store, StorageError
+from tempfile import TemporaryDirectory
 from seed_data import generate_dataset, insert_dataset
 
 
@@ -38,13 +37,14 @@ def audit_database(db):
         if not condition:
             raise ValueError(message)
     def date_value(row, key):
-        require(isinstance(row[key], datetime), f'{key} is not a BSON date')
+        require(isinstance(row[key], datetime), f'{key} is not a timestamp')
         return ops.as_utc(row[key])
     def identifier(row, key, prefix):
-        require(isinstance(row['_id'], ObjectId), '_id is not an ObjectId')
+        require(isinstance(row['_id'], str) and bool(row['_id']), '_id is not a string identifier')
         require(ops.readable_id(row[key], prefix, generate=False) == row[key], f'invalid {key}')
-    donors = list(db.donors.find({}))
-    requests = list(db.blood_requests.find({}))
+    snapshot = db.manifest()
+    donors = db.rows('donors', snapshot)
+    requests = db.rows('blood_requests', snapshot)
     donor_map = {row.get('donor_id'): row for row in donors if isinstance(row.get('donor_id'), str)}
     request_map = {row.get('request_id'): row for row in requests if isinstance(row.get('request_id'), str)}
     for row in donors:
@@ -77,7 +77,7 @@ def audit_database(db):
     near_expiry = 0
     unit_ids, donation_ids = set(), set()
     donations = stale_statuses = 0
-    for row in db.donations.find({}):
+    for row in db.rows('donations', snapshot):
         donations += 1
         try:
             identifier(row, 'unit_id', 'UNT')
@@ -129,12 +129,6 @@ def audit_database(db):
                 problem(f"blood_requests/{row.get('_id')}: overfulfilled or invalid status summary")
     if len(donor_map) != len(donors) or len(request_map) != len(requests):
         problem('Missing or duplicated donor/request readable IDs')
-    for collection, fields in [('donors', ['donor_id']), ('donations', ['donation_id', 'unit_id']),
-                               ('blood_requests', ['request_id'])]:
-        indexes = list(db[collection].index_information().values())
-        for field in fields:
-            if not any(index.get('unique') and index['key'] == [(field, 1)] for index in indexes):
-                problem(f'Missing unique index: {collection}.{field}')
     if not total_errors:
         result = analytics.dashboard(db, now=now)
         if {r['blood_group']: r['count'] for r in result['available_by_group']} != {
@@ -171,61 +165,39 @@ def audit_database(db):
 
 
 def scale_check(sizes):
-    name = 'blood_bank_test_' + uuid4().hex
-    client, db = connect(name)
     results = []
-    try:
+    with TemporaryDirectory(prefix='blood_bank_spark_test_') as folder:
+        db = Store(folder)
         for size in sizes:
-            for collection in ('donors', 'donations', 'blood_requests'):
-                db.drop_collection(collection)
-            create_indexes(db)
-            start = perf_counter()
-            dataset = generate_dataset(size)
-            generated = perf_counter()
-            insert_dataset(db, dataset)
+            started = perf_counter()
+            data = generate_dataset(size)
+            insert_dataset(db, data, replace=True)
             inserted = perf_counter()
             audit = audit_database(db)
-            checked = perf_counter()
-            start_dashboard = perf_counter()
-            analytics.dashboard(db)
-            dashboard_seconds = perf_counter() - start_dashboard
-            explain = analytics.explain_inventory(db)
-            results.append({'donation_size': size, 'generation_seconds': round(generated - start, 3),
-                            'insertion_seconds': round(inserted - generated, 3),
-                            'audit_seconds': round(checked - inserted, 3),
-                            'dashboard_seconds': round(dashboard_seconds, 3), 'audit': audit,
-                            'explain': {key: value['statistics'] for key, value in explain.items()}})
-            print(f'Checked {size:,} donations: {"PASS" if audit["ok"] else "FAIL"}', flush=True)
-    finally:
-        assert db.name == name and name.startswith('blood_bank_test_')
-        client.drop_database(name)
-        client.close()
+            results.append({'donations': size, 'total_records': sum(len(r) for r in data.values()),
+                            'generate_and_save_seconds': round(inserted - started, 3),
+                            'audit_seconds': round(perf_counter() - inserted, 3), 'audit': audit})
+            print(f'Checked {size}: {audit["ok"]}', flush=True)
     return results
 
-
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--scale', action='store_true', help='Write only to a temporary test database and clean it up.')
+    parser = argparse.ArgumentParser(description='Read-only Spark/Parquet operational audit.')
+    parser.add_argument('--scale', action='store_true')
     parser.add_argument('--sizes', type=int, nargs='+', default=[1000, 5000, 10000, 25000])
     args = parser.parse_args()
     if args.scale:
         if any(not 20 <= size <= 100000 for size in args.sizes):
-            parser.error('Scale-check sizes must be between 20 and 100,000 donations.')
+            parser.error('Scale sizes must be 20 through 100000.')
         result = scale_check(args.sizes)
         ok = all(row['audit']['ok'] for row in result)
     else:
-        client, db = connect()
-        try:
-            result = audit_database(db)
-            ok = result['ok']
-        finally:
-            client.close()
+        result = audit_database(connect())
+        ok = result['ok']
     print(json.dumps(result, indent=2))
     return 0 if ok else 1
-
 
 if __name__ == '__main__':
     try:
         raise SystemExit(main())
-    except (ConnectionError, PyMongoError):
-        raise SystemExit('Verification could not finish. Check MongoDB and configuration; no credentials are displayed.') from None
+    except (ValueError, StorageError, OSError) as exc:
+        raise SystemExit(str(exc)) from None

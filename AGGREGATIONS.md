@@ -1,165 +1,86 @@
-# MongoDB analytics walkthrough
+# Apache Spark SQL pipelines
 
-All main chart calculations execute in MongoDB. Python receives small result sets; Pandas formats them for Plotly. The source of the pipelines is `analytics.pipelines()`, so the examples below execute the same queries as the dashboard. `$match` reduces input, `$group` combines similar documents, `$sum` counts or adds quantities, `$sort` orders, `$project` selects/renames fields, `$count` totals matches, `$dateToString` builds month labels, and `$limit` restricts output.
+All main dashboard summaries now execute with Spark SQL over Parquet temporary views. MongoDB aggregation dictionaries and index comparisons were removed from the active implementation.
 
-## Run the actual queries
+## Run the exact application queries
 
-After seeding, start Python from the activated project environment:
-
-```powershell
-python
-```
-
-Run this block:
-
-```python
-from pprint import pprint
+~~~python
 from database import connect
-from analytics import pipelines
+from public_data import public_pipelines, public_report, explain_public
+db = connect('public')
+for name, sql in public_pipelines().items():
+    print(name, sql)
+    print(db.query(sql))
+print(public_report(db)['total'])
+print(explain_public(db)['physical_plan'])
+~~~
 
-client, db = connect()
-queries = pipelines()
-for name in ('available_by_group', 'monthly_donations', 'requested_by_group',
-             'top_cities', 'expired_count', 'near_expiry_count', 'inventory_status'):
-    collection, pipeline = queries[name]
-    print(name)
-    pprint(list(db[collection].aggregate(pipeline)))
-client.close()
-```
+The public importer must run first. All groups, dates and state selections are validated; text literals are escaped. The interface does not execute user-supplied arbitrary SQL.
 
-These are seven executable aggregations. The Analytics page also displays their complete pipeline JSON and live results. An empty `$count` result is `[]`, which the application interprets as zero.
+## Public analytics: six working queries
 
-## Query 1: available units by blood group
+~~~sql
+-- 1. Monthly donations: SUM counts, do not count CSV rows.
+SELECT date_format(date, 'yyyy-MM') AS month, SUM(donations) AS count
+FROM daily_donations
+WHERE blood_type = 'all'
+GROUP BY date_format(date, 'yyyy-MM')
+ORDER BY month;
 
-```python
-from config import utcnow
-pipeline = [
-    {'$match': {'unit_status': 'Available', 'request_id': None,
-                'expiration_date': {'$gt': utcnow()}}},
-    {'$group': {'_id': '$blood_group', 'count': {'$sum': 1}}},
-    {'$sort': {'count': -1, '_id': 1}},
-    {'$project': {'_id': 0, 'blood_group': '$_id', 'count': 1}},
-]
-# list(db.donations.aggregate(pipeline)) while the connection is open
-```
+-- 2. Annual donations (latest year is partial).
+SELECT date_format(date, 'yyyy') AS year, SUM(donations) AS count
+FROM daily_donations WHERE blood_type = 'all'
+GROUP BY date_format(date, 'yyyy') ORDER BY year;
 
-First keep only unissued, unexpired Available units. Then count documents in each group. Sort by stock and return readable field names. With All selected, Python fills missing groups with zero so shortages are visible for all eight groups. Selecting a blood group shows only that group; excluded groups are not mislabeled as having zero stock.
+-- 3. Daily donations across selected collection states.
+SELECT date_format(date, 'yyyy-MM-dd') AS day, SUM(donations) AS count
+FROM daily_donations WHERE blood_type = 'all'
+GROUP BY date_format(date, 'yyyy-MM-dd') ORDER BY day;
 
-## Query 2: monthly donations
+-- 4. States ranked by recorded quantity (not population-adjusted rates).
+SELECT state, SUM(donations) AS count
+FROM daily_donations WHERE blood_type = 'all'
+GROUP BY state ORDER BY count DESC, state LIMIT 13;
 
-```python
-pipeline = [
-    {'$match': {}},
-    {'$group': {'_id': {'$dateToString': {'format': '%Y-%m',
-                                        'date': '$donation_date', 'timezone': 'UTC'}},
-                'count': {'$sum': 1}}},
-    {'$sort': {'_id': 1}},
-    {'$project': {'_id': 0, 'month': '$_id', 'count': 1}},
-]
-```
+-- 5. ABO distribution EXCLUDES published subtotal rows.
+SELECT upper(blood_type) AS blood_group, SUM(donations) AS count
+FROM daily_donations WHERE blood_type IN ('a', 'b', 'ab', 'o')
+GROUP BY blood_type ORDER BY blood_type;
 
-Turn each donation timestamp into its UTC year-month, count donations for each month, and sort chronologically. Available, Issued and Expired donations all contribute because they were all received. Date/group filters go in `$match`. Pandas fills missing months *between observed months* with zeros when plotting, without changing MongoDB's result.
+-- 6. Weekday totals, Monday = 1. These are totals, not per-day averages.
+SELECT ((dayofweek(date) + 5) % 7) + 1 AS weekday, SUM(donations) AS count
+FROM daily_donations WHERE blood_type = 'all'
+GROUP BY ((dayofweek(date) + 5) % 7) + 1 ORDER BY weekday;
+~~~
 
-## Query 3: requested units by blood group
+WHERE selects rows; GROUP BY creates buckets; SUM adds recorded quantities; ORDER BY sorts; LIMIT bounds output. date_format creates date labels. The app adds inclusive date/state/group filters. Inclusive end dates are represented by "less than the following midnight". Published totals exceed the ABO sum by 306 in the included snapshot; raw values and the disclosure are retained.
 
-```python
-pipeline = [
-    {'$match': {}},
-    {'$group': {'_id': '$blood_group', 'count': {'$sum': '$units_requested'}}},
-    {'$sort': {'count': -1, '_id': 1}},
-    {'$project': {'_id': 0, 'blood_group': '$_id', 'count': 1}},
-]
-```
+## Management analytics
 
-Run on `blood_requests`. Summing `units_requested` measures units of demand, not the number of request documents. A ten-unit request contributes ten. Fulfilled requests still belong in historical demand analysis. `monthly_requests` similarly groups by request month and adds requested units.
+analytics.pipelines() returns SQL for:
+- Available units by group: filter Available, no request link, donated by now, expiry after now; COUNT(*).
+- Monthly simulated donations: date_format + COUNT(*), because each document-equivalent row is one unit.
+- Donation distribution: GROUP BY blood_group + COUNT(*).
+- Requested quantities: GROUP BY blood_group + SUM(units_requested).
+- Monthly demand: request-month buckets + SUM(units_requested).
+- Top cities: donor GROUP BY city + COUNT(*) + LIMIT 10.
+- Expired unissued: COUNT(*) where expiry <= now and status is not Issued.
+- Near expiry: available predicate plus expiry <= now + configured days.
+- Status distribution: CASE preserves Issued, classifies elapsed unissued units as Expired, then GROUP BY.
+- Pending KPI: LEFT JOIN requests to counts of issued units, COALESCE missing counts to zero, count requests with outstanding demand.
 
-## Query 4: top donor cities
+Historical date filters do not pretend to reconstruct past stock. Current inventory/expiry remains current; public-view filters apply to its entire report.
 
-```python
-pipeline = [
-    {'$match': {}},
-    {'$group': {'_id': '$city', 'count': {'$sum': 1}}},
-    {'$sort': {'count': -1, '_id': 1}},
-    {'$project': {'_id': 0, 'city': '$_id', 'count': 1}},
-    {'$limit': 10},
-]
-```
+## Explain and timing
 
-Run on `donors`. Count registered donors by city, sort largest first, and return only the top ten. A donor with multiple donations still counts once. An enabled historical filter refers to the donor's registration date.
-
-## Query 5: expired and near-expiry counts
-
-```python
-from datetime import timedelta
-from config import NEAR_EXPIRY_DAYS, utcnow
-now = utcnow()
-expired_pipeline = [
-    {'$match': {'unit_status': {'$ne': 'Issued'},
-                'expiration_date': {'$lte': now}}},
-    {'$count': 'count'},
-]
-near_pipeline = [
-    {'$match': {'unit_status': 'Available', 'request_id': None,
-                'expiration_date': {'$gt': now,
-                                    '$lte': now + timedelta(days=NEAR_EXPIRY_DAYS)}}},
-    {'$count': 'count'},
-]
-```
-
-Run both on `donations`. Expired units include stale Available records whose date has elapsed, but exclude issued history. Near expiry is an inclusive seven-day upper boundary with an exclusive current-time boundary. The same predicates return the actual units for the alert tables.
-
-## Query 6: inventory status distribution
-
-```python
-from config import utcnow
-pipeline = [
-    {'$match': {}},
-    {'$project': {'status': {'$switch': {'branches': [
-        {'case': {'$eq': ['$unit_status', 'Issued']}, 'then': 'Issued'},
-        {'case': {'$lte': ['$expiration_date', utcnow()]}, 'then': 'Expired'},
-    ], 'default': '$unit_status'}}}},
-    {'$group': {'_id': '$status', 'count': {'$sum': 1}}},
-    {'$sort': {'_id': 1}},
-    {'$project': {'_id': 0, 'status': '$_id', 'count': 1}},
-]
-```
-
-Calculate effective status before counting. Test Issued first to preserve history, then determine expiry from the timestamp. Thus counts remain accurate even before the periodic UI interaction marks elapsed units Expired. For valid application data, the three status counts sum to total donations.
-
-## Other analytics
-
-Donation blood-group distribution groups all donations and uses `$sum: 1`. Request status is derived by `$lookup` into donations and `$count` of linked Issued units. This lookup makes request views resilient to interrupted summary updates. The KPI labelled Pending Blood Requests counts both pending and partially fulfilled requests, because both still need units.
-
-## Explain and index comparison
-
-Run:
-
-```powershell
+~~~powershell
 python analytics.py --explain --group 'O+'
-python analytics.py --explain --group 'O+' --raw
-```
+~~~
 
-PyMongo's `Database.command()` wraps the aggregation in the server's `explain` command with `verbosity='executionStats'`. The first execution hints `{'$natural': 1}` to force a collection scan. The second ensures indexes exist and hints `inventory_fefo` to use the compound index. This safely compares access paths without dropping unique constraints or changing existing data. When indexes already exist, the first execution is a **simulated no-index access path**, not a literal measurement before index creation.
+The Analytics page also calls EXPLAIN FORMATTED for the public and inventory SQL. Look for Parquet Scan/FileScan, ReadSchema (column projection), PushedFilters, HashAggregate, Sort and Exchange (shuffle). The exact plan is printed, not invented. An elapsed time and returned-result count describe one actual run; there is no index benchmark and no claimed universal speedup.
 
-The first `$match` selects blood group, Available status and unexpired units. The compound index narrows the candidate set by those fields. `request_id: null` is verified against candidate documents. The grouped output remains the same.
+Spark transformations are planned lazily; an action such as collect executes the job. Only aggregated outputs or 100-row pages normally return to the interface. ETL validation and small operational writes use Python/Pandas/PyArrow; this is not falsely presented as fully distributed ETL.
 
-| Statistic | Meaning |
-|---|---|
-| `executionTimeMillis` | Server execution time for that explain run; may be 0 for small queries |
-| `totalDocsExamined` | Number of documents inspected during query execution |
-| `totalKeysExamined` | Number of index entries inspected |
-| `nReturned` | Returned records at the reported execution layer; may be aggregate rows or cursor-stage documents depending on the plan |
+## Big Data concepts
 
-The function supports top-level statistics and aggregation `$cursor` statistics. Missing statistics display as null rather than an invented number. Inspect the raw plan for `COLLSCAN` or `IXSCAN` and server-specific details. Time depends on hardware, cache state and query planning; one run does not establish a general speedup. Repeat if conducting a formal experiment, keep the dataset/query fixed and report the methodology. The actual local observation is in `VERIFICATION.md`.
-
-Primary references: [Explain results](https://www.mongodb.com/docs/manual/reference/explain-results/), [measure index use and natural hints](https://www.mongodb.com/docs/manual/tutorial/measure-index-use/), and [explain command](https://www.mongodb.com/docs/manual/reference/command/explain/).
-
-## Big Data Analytics concepts
-
-**Volume:** configurable generation and bulk insertion let students compare 1,000–25,000 donation records plus related documents. These are demonstration sizes, not proof of industrial scale. Database-side aggregation avoids transferring every source document to the UI.
-
-**Variety:** donors, donations and requests have distinct document structures, and contain strings, integers, dates, nulls and ObjectIds. This demonstrates varied structured records; it does not claim to process images, genomic data or unstructured streams.
-
-**Velocity:** new donation and request writes change operational inventory and subsequent analytics. This is modest interactive updating, not a streaming system. Refreshing the app reruns queries; it does not continuously ingest external feeds.
-
-Bulk insertion reduces network command overhead. Indexes reduce inspected candidates for selective queries. Aggregation produces descriptive summaries. Together these demonstrate techniques relevant to big data analytics on a small local dataset. The app uses one MongoDB server and no distributed processing.
+Volume: 493,220 aggregate source records, not 9.9 million stored donor/unit records. Variety: timestamps, categories, counts and separate operational schemas. Velocity: the publisher's daily data and controlled snapshot reimports, not live streaming. Spark runs locally with two threads; no HDFS/YARN cluster or multi-machine performance was tested.

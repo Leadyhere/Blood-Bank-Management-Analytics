@@ -1,164 +1,132 @@
-# Blood Bank Management and Inventory Analytics Using MongoDB
+# Blood Bank Management and Inventory Analytics Using Apache Spark
 
 ## 1. Project title
 
-**Blood Bank Management and Inventory Analytics Using MongoDB**
-
-Subject: Big Data Analytics mini project. Add the student's name, roll number, institution, guide and academic year before submission.
+Blood Bank Management and Inventory Analytics Using Apache Spark. Big Data Analytics mini project. Add student, department, institution, guide and academic year.
 
 ## 2. Abstract
 
-Blood banks need clear records of donors, donations, available units and hospital requests. This mini project develops a local application titled Blood Bank Management and Inventory Analytics Using MongoDB. Python implements the application logic, MongoDB stores document records, and PyMongo connects the application to the database. Streamlit provides an interactive interface, while Pandas and Plotly organize and visualize query results. Faker generates synthetic donors, donations and requests for safe classroom demonstrations. The system calculates inventory directly from donation records, excludes expired units, and fulfills exact blood group requests using the first expire, first out method. It displays donor and donation totals, current stock, outstanding requests, expiration alerts and historical trends. MongoDB aggregation pipelines summarize inventory, monthly donations, requested quantities, donor cities and unit statuses. Bulk insertion supports configurable demonstration datasets, and an explain comparison examines indexed and collection scan execution. The project illustrates volume, variety and velocity at a small scale without claiming distributed processing. It includes input validation, unique identifiers, tests and documented consistency limitations. The application is intended for learning and demonstration, not clinical decisions or operational blood bank deployment.
+This mini project develops a local blood donation analytics and inventory demonstration system using Apache Spark. Its main analytical source is a predefined public dataset published by Malaysia's Ministry of Health through data.gov.my. The included snapshot contains 493,220 daily state and blood group observations. Python validates source fields, checks duplicate observations, records provenance and stores typed data in Parquet format. Spark SQL performs monthly, yearly and daily aggregations, blood group distributions, state comparisons and weekday summaries. Streamlit provides interactive filters, tables and charts, with Pandas and Plotly supporting presentation. Published subtotal rows are handled separately from blood group categories to prevent double counting. A source-total discrepancy is preserved and disclosed. Because the public dataset does not include individual donors, requests or expiration dates, those workflows remain a clearly labeled synthetic demonstration. Operational changes use validation, local writer locks and immutable snapshots published through one manifest pointer. Tests check data integrity, request fulfillment, failure recovery and interface behavior. The project demonstrates practical ingestion, columnar storage, SQL aggregation and execution-plan inspection without claiming a distributed deployment or suitability for clinical decisions.
 
 ## 3. Introduction
 
-Inventory information is useful only when it describes units that can actually be used within the model. A record marked Available may become expired as time passes, while a previously issued unit should remain in historical reports. Separating these meanings is central to this project.
-
-MongoDB stores donor, donation and request information in document collections. Its aggregation framework performs descriptive analysis close to the stored data. Streamlit presents the results through a simple browser interface. The project combines record management with analytical reporting so students can explain both database operations and the meaning of the charts.
+Blood-bank information involves different data grains. Published daily totals describe collection activity, while individual unit records support operational inventory. Combining them without distinguishing their meanings would produce misleading stock estimates. The project separates these two scopes while demonstrating a Spark-based analytical workflow.
 
 ## 4. Problem statement
 
-A classroom blood bank scenario requires a consistent way to register donors, record units, fulfill hospital demand and summarize trends. Manually maintained totals can disagree with individual unit records, and expired stock can be mistakenly included if only status labels are checked. The problem is to build a small local system that derives stock correctly, updates unit allocation safely, and presents useful analytical summaries using MongoDB.
+Analyze a licensed predefined blood-donation dataset with explainable queries and preserve a simple management demonstration. Prevent subtotal double-counting, invalid inputs, duplicate identifiers, expired issuance and inconsistent request/inventory publication. Replace the original MongoDB backend without falsely describing Spark as a transactional database.
 
 ## 5. Objectives
 
-- Maintain synthetic donor, donation and request records with validated inputs and unique readable IDs.
-- Calculate available inventory directly from unissued, unexpired donation documents.
-- Fulfill exact-group requests using the earliest expiration date first.
-- Show low stock, expired units and units approaching expiration.
-- Analyze donation trends, demand, blood-group distribution and donor locations.
-- Demonstrate aggregation pipelines, indexing, bulk insertion and query execution statistics.
-- Provide a reproducible dataset, tests and a project that students can explain during evaluation.
+- Validate, preserve and import the official dataset into Parquet.
+- Execute the main analytical pipelines in Spark SQL.
+- Show the existing interactive charts and filters.
+- Retain donor, unit, request, FEFO and alert demonstrations using synthetic data.
+- Inspect actual physical plans and record test evidence.
+- Document source coverage, discrepancies and local-storage limitations.
 
-## 6. Existing system and its limitations
+## 6. Existing system and limitations
 
-For this educational comparison, the existing system is assumed to be a manually maintained register or spreadsheet. Such a workflow can require repeated counting, manual expiry checks and manual preparation of charts. Duplicate identifiers or separately maintained stock totals can introduce inconsistencies. Searching across donor, donation and request histories may be inconvenient.
-
-This comparison is a project assumption. No survey of real hospitals was conducted, and the report does not claim that actual blood banks universally use manual methods.
+The previous project used MongoDB documents, aggregation pipelines and atomic unit updates. It was appropriate for a small operational application but did not satisfy the revised requirement to demonstrate Spark or Hadoop. A hypothetical manual register is also less convenient for repeated aggregation and consistency checks; this comparison is an educational assumption, not a hospital survey.
 
 ## 7. Proposed system
 
-The proposed system stores three types of documents in MongoDB. Donors are registered first; donation records reference them and copy their blood group. Each donation represents one standardized demonstration red blood cell unit. Requests describe exact-group demand. Issuing updates individual units and associates them with a request.
-
-The application offers five pages: Dashboard, Donor Management, Blood Inventory, Blood Requests and Analytics. It calculates stock from records rather than maintaining a separate counter. Current expiration rules are applied to queries, and a refresh updates stored expired statuses. All data is synthetic.
+Use Apache Spark SQL locally over Parquet tables. Retain five Streamlit pages and the real/simulated distinction. Manage small operational updates with Python validation, thread and local OS file locks, immutable files and atomic manifest replacement. Keep old MongoDB data unchanged for preservation; it is not used by the active application.
 
 ## 8. Technology stack
 
-| Technology | Responsibility |
+| Technology | Role |
 |---|---|
-| Python | Application logic, validation, seed simulation and tests |
-| MongoDB Community Server | Local document storage, indexes and aggregation |
-| PyMongo | Database queries, atomic updates and bulk insertion |
-| Streamlit | Sidebar navigation, forms, tables and dashboard |
-| Pandas | Format small aggregated result sets and fill internal monthly gaps |
-| Plotly | Interactive bar, line and pie charts |
-| Faker | Reproducible synthetic donor names |
-| python-dotenv | Load connection/configuration settings from `.env` |
+| Python | Validation, orchestration, operational logic and tests |
+| PySpark 4.0.1 / Java 21 | Local Spark SQL execution |
+| Parquet | Persistent typed columnar storage |
+| PyArrow | Portable Parquet writes and operational snapshot reads |
+| Streamlit | Interactive application |
+| Pandas | CSV parsing, validation and result formatting |
+| Plotly | Charts |
+| Faker | Optional synthetic management records |
+| python-dotenv | Environment configuration |
+| unittest / Streamlit AppTest | Executable QA |
 
-Python's standard library provides the test runner, time utilities, in-process lock and priority queues. No machine learning or distributed processing framework is used.
+PyMongo is an optional dependency of the one-time read-only migration script only.
 
 ## 9. System architecture
 
-The interface calls operations and analytics modules. Both use the PyMongo database connection. The operations module validates writes and implements fulfillment, while the analytics module constructs server-side pipelines. Configuration is read centrally. A separate script generates and inserts the demonstration data.
+Official CSV → validation/provenance → Parquet public snapshot → Spark SQL → aggregated results → Streamlit/Plotly.
 
-```text
-User → Streamlit → operations.py / analytics.py → PyMongo → MongoDB
-                          ↑                           ↑
-                     config.py              seed_data.py (bulk load)
-```
+Management form → validated Python operation → local writer lock → new immutable operational files → atomic current.json replacement → Spark reports.
 
-This separation allows tests to call database logic independently of the interface. MongoDB returns summarized values for most charts, limiting the amount of data transferred to Pandas.
+Spark runs with local[2], meaning local worker threads, not a two-machine cluster. Main analytical computations execute in Spark. Initial CSV preparation and small record mutations are intentionally driver-side, not falsely described as distributed ETL.
 
-## 10. Database design
+## 10. Storage design
 
-The database is named `blood_bank_analytics` and contains three main collections. `donors` stores donor identity, demographic fields, group, city, synthetic contact and registration date. `donations` stores donation and unit IDs, donor reference, group, donation/expiration dates, status and any request association. `blood_requests` stores hospital demand, request date and fulfillment summary.
+The public namespace contains daily_donations: date, state, blood_type, donations, source_row and source_sha256. Natural key: date/state/blood type. No individual donor identities are supplied.
 
-Each collection uses an ObjectId `_id` and a unique readable identifier. Donations also have a unique unit ID. The relationships are one donor to many donations and one request to many issued units. Python checks references; MongoDB does not provide foreign-key enforcement here. The donation's blood group is copied for convenient historical analysis.
+The management namespace contains donors, donations and blood_requests. Fields and one-to-many relationships remain consistent with the original workflows. IDs are strings rather than BSON ObjectIds. UTC microsecond timestamps and 64-bit integer quantities are explicitly typed. Full schemas are in DATABASE_DESIGN.md.
 
-Complete field definitions, required values, example Extended JSON documents and indexes are provided in `DATABASE_DESIGN.md`. Stored request counters are repairable summaries; linked issued units are authoritative. Inventory is always calculated directly.
+Each namespace has a current manifest mapping tables to immutable version files. Old files are retained for pinned readers and recovery. There are no native Parquet unique indexes; Python validation enforces uniqueness under the writer lock.
 
-## 11. Module descriptions
+## 11. Modules
 
-**Donor management:** validates donor details, creates readable IDs, rejects duplicates, and searches by group or city. Tables provide pagination over all matching records.
+Dashboard: real donation analytics or simulated stock KPIs/charts. Donor Management: register/search synthetic donors. Blood Inventory: record units, inspect stock and expiry. Blood Requests: add exact-group demand and fulfill with FEFO. Analytics: SQL text, output tables, storage statistics and Spark physical plans.
 
-**Donation and inventory management:** requires an existing donor, calculates expiration using configured shelf life, and records one unit per donation. Available stock excludes elapsed expiration dates and issued records. Expired units remain available for historical analysis rather than being deleted.
+The public report is organized into Overview, Trends & patterns, and Source & data tabs. It uses consistent chart colors, compact metrics and selection-based descriptive findings. Partial calendar periods are explicitly marked. Daily smoothing requires consecutive dates, weekday averages normalize by observed dates, and filtered CSV summaries retain their selection context. Bounded immutable-snapshot caching reduces repeated query work without replacing Spark aggregation.
 
-**Request management:** records hospital demand, shows pending/partial/fulfilled status, and issues exact-group units using FEFO. The issue quantity is capped by outstanding demand, available stock and the operator's optional per-click limit.
+The public loader validates and verifies source data. The seed generator builds optional reproducible test data. The migration script preserves old records without requiring MongoDB in the active application.
 
-**Analytics dashboard:** presents six KPIs, six core charts, filters, raw aggregation outputs and database statistics. A monthly requested-unit chart supplements the required visuals.
+## 12. Big Data techniques
 
-**Alerts:** identifies every group below the configured threshold, including groups with zero units, and lists near-expiry and expired unissued units. Alerts appear only inside the application.
+Columnar storage, bulk snapshot ingestion, typed schemas, Spark SQL filtering/grouping/summing, shuffle exchanges, predicate pushdown, column pruning and EXPLAIN FORMATTED are demonstrated.
 
-## 12. Big Data Analytics techniques used
+Volume: 493,220 aggregate observations. Variety: time, categories, counts and operational table structures. Velocity: daily publisher updates and controlled snapshot replacement, not a streaming implementation. No million-document or multi-machine throughput claim is made; 9,896,044 is the sum of recorded counts.
 
-The project demonstrates descriptive analytics through MongoDB pipelines. Bulk insertion loads many documents per request. Useful indexes support selective filtering, donor references, request links and FEFO access. Explain statistics compare a forced collection scan with indexed access for the same inventory aggregation.
+## 13. Analytical queries
 
-Volume is represented by configurable datasets, including 1,000, 5,000, 10,000 and 25,000 donations plus related records. Variety is represented by different document structures and BSON data types. Velocity is illustrated by interactive updates that change stock and subsequent analytics. These are small-scale demonstrations; the project is not a distributed big data platform and does not claim million-record processing.
+The public pipelines summarize monthly, yearly, daily, state, ABO and weekday activity. Overall trends select blood_type='all'; group distribution excludes subtotal rows. SUM(donations) measures donated quantities; COUNT(*) measures source observations.
 
-## 13. MongoDB aggregation queries
+Operational SQL covers available stock, donation trends/distribution, requested quantities/trends, top cities, expired/near-expiry counts and effective statuses. A LEFT JOIN derives outstanding requests from linked issued units. See AGGREGATIONS.md for executable SQL and explanations.
 
-The required pipelines are implemented in `analytics.py` and explained with executable examples in `AGGREGATIONS.md`:
+## 14. Implementation
 
-| Pipeline | Main stages | Output |
-|---|---|---|
-| Available inventory | `$match`, `$group`, `$sum`, `$sort`, `$project` | Valid available units per group |
-| Monthly donations | `$match`, `$dateToString`, `$group`, `$sum`, `$sort` | Donation count per UTC month |
-| Requested quantities | `$match`, `$group`, `$sum`, `$sort`, `$project` | Units requested per group |
-| Top donor cities | `$group`, `$sum`, `$sort`, `$project`, `$limit` | Up to ten cities by donor count |
-| Expiration counts | `$match`, `$count` | Expired and near-expiry unissued counts |
-| Inventory status | `$project`, `$switch`, `$group`, `$sum`, `$sort` | Effective Available/Issued/Expired counts |
+The source CSV remains unchanged. Parsing rejects unexpected columns/categories, invalid dates/counts, duplicates and incomplete category groups. Source hash and row number support provenance. The published total exceeds the ABO breakdown by 306 across 285 date/state observations; this is disclosed, not altered.
 
-The request view additionally uses `$lookup` to count issued units linked to each request. `$sum: 1` counts documents, whereas `$sum: '$units_requested'` adds demand quantities. This difference is important for interpreting the request chart correctly.
+FEFO selects the earliest-expiring unissued exact-group unit, with unit ID as tie-breaker. The issue amount cannot exceed demand or eligible stock. Host time is checked before selecting and recording issue timestamps. Available stock is computed from unit records.
 
-## 14. Implementation details
-
-The default MongoDB URI is local and is read from `.env`. Connection failures produce a useful message without showing credentials. Unique indexes enforce identifier uniqueness. Dates are stored as UTC BSON dates; date-only input becomes midnight UTC. The default shelf life is 42 days, but actual blood-component rules vary and are outside this demonstration.
-
-Unit issuing uses `find_one_and_update` with a predicate requiring Available status, no request link, the exact requested group and an expiration date after the current time. Sorting by expiration date and unit ID selects the FEFO unit deterministically. Status, request link and issue time change atomically in that document.
-
-Standalone MongoDB does not provide a multi-document transaction in this workflow. A Python lock serializes writers within one application process. Each fulfillment begins by counting already-linked units and ends by repairing the request summary. If interrupted, request reads still derive actual counts and a retry/startup repairs stored counters. Independent writer processes are outside the supported model.
-
-The generator creates donors before donations, simulates requests in historical date order, issues only existing unexpired matching units, and inserts collections in batches. The fixed seed is reproducible relative to the same date and package version. Reset requires typed confirmation and never occurs automatically on a nonempty database.
-
-A robustness revision adds type checks, bounded database operation timeouts, sanitized configuration failures, server-time expiration checks and a read-only integrity auditor. A small reserved waste sample keeps expired records visible at the advertised dataset sizes. All-group charts include zero-stock groups; a selected-group chart displays only the selected group. Details and reproduced failure cases are in `ROBUSTNESS_REVIEW.md`.
+The local snapshot protocol writes and flushes new files before atomically publishing one pointer. Inventory and request summaries are visible together. A failed pre-publication save leaves prior data intact; an uncertain acknowledgement requires checking the committed snapshot before retry. This is a local application mechanism, not a distributed ACID storage engine.
 
 ## 15. Testing and results
 
-Testing combines Python unit tests, real MongoDB integration tests and Streamlit's AppTest. Test cases check record validation, identifiers, references, date boundaries, FEFO, partial/complete fulfillment, exact matching, interrupted summary recovery, concurrent same-process callers and aggregated totals. All five pages are exercised with empty and generated data.
+The final dashboard regression suite passed 77 tests with real Spark integration enabled on 29 October 2026. It covers business rules, source validation, SQL totals, filters, unique identifiers, file-save failure injection, uncertain acknowledgement, competing writers, Streamlit forms, cache invalidation and analytical-presentation safeguards. Browser checks additionally inspect the actual real-data interface.
 
-The actual local test record and dataset measurements are maintained in `VERIFICATION.md`, which should accompany this report. The manual checklist in `TESTING.md` describes expected results for a student's demonstration; it is not a fabricated test log. For a new machine or changed implementation, rerun the tests and record the new outputs.
-
-The explain experiment reports execution time, documents examined, keys examined and raw plans. Its indexed and forced-scan paths use the same query. A small timing sample does not establish a universal speed improvement. No screenshots or performance figures should be inserted unless captured from an actual run.
+All 493,220 public rows were compared with Parquet successfully. The original 2,500 donors, 5,000 units and 1,000 requests were migrated and compared record-by-record; MongoDB was not modified. Detailed measured results, additional full-dataset checks, scale checks and warnings are recorded in VERIFICATION.md rather than invented in this report. Rerun tests for changed code or a different machine.
 
 ## 16. Advantages
 
-The application is small enough to study and run locally. Its inventory has a clear record-based source of truth. Database-side aggregation supports meaningful charts without transferring every source document to the UI. Synthetic data supports repeatable classroom demonstrations without handling real donor information. Indexes and explain output make database behavior observable, while tests document important rules.
+The project satisfies the revised Spark requirement while retaining the familiar interface and source dataset. SQL plans are visible, source limitations are transparent, operational changes are validated before publication, and previous source/data are preserved. No unofficial Windows Hadoop executable is needed for the verified read/write path.
 
 ## 17. Limitations
 
-The application supports one running writer process and does not provide cross-document transactional atomicity. Direct external edits can bypass Python validation. Request summary fields can briefly be stale after an interruption, although reads derive their authoritative values and reconciliation repairs them.
+Spark is not an OLTP database. Management writes rewrite small tables and keep older versions, increasing disk usage. The snapshot protocol assumes local disk and cooperating writers, not HDFS, shared storage or network synchronization. Authentication, clinical checks, distributed transactions and automatic version cleanup/recovery are absent.
 
-The project does not implement authentication, clinical donor eligibility, donor spacing rules, blood-component compatibility, cold-chain tracking, infectious screening or regulated traceability. The age and shelf-life settings are demonstration assumptions. Generated distributions are illustrative. There is no distributed processing, external streaming ingestion or background notification system. Displayed information refreshes on interactions rather than continuously.
+The public source covers selected collection sites, lacks Rh and unit-level information, has a small total discrepancy and includes an incomplete latest year. It cannot establish real current blood inventory. Java startup and Spark job overhead may be noticeable for small queries. Correct host time is required. Testing does not establish clinical safety or absence of every bug.
 
 ## 18. Future enhancements
 
-Suitable future work includes MongoDB schema validators, controlled audit history, additional donor-history reports, downloadable analytical summaries and more extensive failure testing. A genuinely multi-user operational system would require transactions, access controls, validated domain requirements and professional review. These enhancements are outside the mini project's current scope; no predictive model is proposed.
+Potential work includes reviewed source refreshes, partitioning studies, measured caching improvements, read-only exports and explicit snapshot retention/recovery tools. If a genuine distributed transactional workflow is required, evaluate an appropriate transactional table/storage system with additional tests. These are future work, not implemented features.
 
 ## 19. Conclusion
 
-This project provides a practical demonstration of MongoDB-based record management and descriptive inventory analytics. Its main contribution is the connection between individual unit records, correct available stock, request fulfillment and understandable charts. Bulk insertion, aggregation, indexing and measured query plans support the Big Data Analytics learning objectives at a manageable local scale. The documented tests and limitations help students explain both what the system demonstrates and where its guarantees end.
+The application demonstrates predefined-data ingestion, Parquet storage, Spark SQL analytics and a separately labeled inventory simulation. It preserves the key interface and business workflows while replacing the active MongoDB backend. Its main educational value is the connection between data meaning, query execution, consistency safeguards and honest verification.
 
 ## 20. References
 
-1. MongoDB, [Aggregation pipeline](https://www.mongodb.com/docs/manual/core/aggregation-pipeline/).
-2. MongoDB, [Indexes](https://www.mongodb.com/docs/manual/indexes/).
-3. MongoDB, [Atomicity and transactions](https://www.mongodb.com/docs/manual/core/write-operations-atomicity/).
-4. MongoDB, [Explain results](https://www.mongodb.com/docs/manual/reference/explain-results/).
-5. PyMongo, [Collection API](https://pymongo.readthedocs.io/en/stable/api/pymongo/collection.html).
-6. Streamlit, [Documentation](https://docs.streamlit.io/).
-7. Pandas, [User guide](https://pandas.pydata.org/docs/user_guide/).
-8. Plotly, [Python documentation](https://plotly.com/python/).
-9. Faker, [Documentation](https://faker.readthedocs.io/).
-10. python-dotenv, [Documentation](https://bbc2.github.io/python-dotenv/).
+- [Apache Spark 4.0.1 overview](https://spark.apache.org/docs/4.0.1/)
+- [Spark SQL Parquet](https://spark.apache.org/docs/4.0.1/sql-data-sources-parquet.html)
+- [Spark EXPLAIN](https://spark.apache.org/docs/4.0.1/sql-ref-syntax-qry-explain.html)
+- [Apache Arrow Python Parquet](https://arrow.apache.org/docs/python/parquet.html)
+- [Official dataset](https://data.gov.my/data-catalogue/blood_donations_state)
+- [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
+- [Streamlit documentation](https://docs.streamlit.io/)
+- [Plotly Python](https://plotly.com/python/)
 
-Project documentation prepared on 12 October 2026. Use the linked official documentation for version-specific details.
+Updated for the Spark migration on 29 October 2026. Historical MongoDB materials are retained only in the backup directory.

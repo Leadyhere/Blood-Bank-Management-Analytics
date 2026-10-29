@@ -18,8 +18,11 @@ def positive_setting(name, default, maximum=3650):
     return value
 
 
-MONGODB_URI = os.getenv('MONGODB_URI', 'mongodb://localhost:27017/')
-MONGODB_DB = os.getenv('MONGODB_DB', 'blood_bank_analytics')
+PROJECT_DIR = Path(__file__).resolve().parent
+SPARK_DATA_DIR = Path(os.getenv('SPARK_DATA_DIR', str(PROJECT_DIR / 'data' / 'spark'))).resolve()
+SPARK_MASTER = os.getenv('SPARK_MASTER', 'local[2]')
+PUBLIC_DATA_DB = 'public'
+MANAGEMENT_DB = 'management'
 SHELF_LIFE_DAYS = positive_setting('SHELF_LIFE_DAYS', 42)
 LOW_STOCK_THRESHOLD = positive_setting('LOW_STOCK_THRESHOLD', 5, maximum=1000000)
 NEAR_EXPIRY_DAYS = positive_setting('NEAR_EXPIRY_DAYS', 7)

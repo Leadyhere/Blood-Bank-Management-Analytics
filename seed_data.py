@@ -1,4 +1,4 @@
-"""Reproducible synthetic data and batched MongoDB insertion.
+"""Reproducible synthetic data and Parquet snapshot insertion.
 
 --records N means N DONATIONS, plus ceil(N/2) donors and ceil(N/5) requests.
 No real people, telephone numbers or hospital identities are used.
@@ -10,13 +10,11 @@ import random
 from collections import defaultdict
 from datetime import datetime, time, timedelta, timezone
 
-from bson import ObjectId
 from faker import Faker
-from pymongo.errors import PyMongoError
 
 from config import BLOOD_GROUPS, GENDERS, SHELF_LIFE_DAYS, utcnow
-from database import connect, create_indexes
-from operations import as_utc, integer
+from database import connect, StorageError
+from operations import as_utc, integer, validate_state
 
 CITIES = ('Mumbai', 'Delhi', 'Pune', 'Bengaluru', 'Chennai', 'Kolkata', 'Jaipur', 'Hyderabad')
 
@@ -28,7 +26,7 @@ def generate_dataset(records=5000, seed=42, now=None):
     fake = Faker('en_IN')
     fake.seed_instance(seed)
     def oid():
-        return ObjectId(rng.getrandbits(96).to_bytes(12, 'big'))
+        return f'{rng.getrandbits(128):032x}'
     donors = []
     for i in range(math.ceil(records / 2)):
         donors.append({
@@ -91,56 +89,34 @@ def generate_dataset(records=5000, seed=42, now=None):
     return {'donors': donors, 'blood_requests': requests, 'donations': donations}
 
 
-def insert_dataset(db, dataset, batch_size=1000):
+def insert_dataset(db, dataset, batch_size=1000, replace=False):
     integer(batch_size, 'Batch size', 1, 10000)
-    for collection in ('donors', 'blood_requests', 'donations'):
-        rows = dataset[collection]
-        for offset in range(0, len(rows), batch_size):
-            db[collection].insert_many(rows[offset:offset + batch_size], ordered=True)
-        print(f'Inserted {len(rows):,} {collection}.')
-
+    validate_state(dataset)
+    with db.locked():
+        if not replace and any(db.count(name) for name in ('donors', 'donations', 'blood_requests')):
+            raise ValueError('Storage is not empty. No records changed. Use --reset and confirm.')
+        db.publish(dataset)
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--records', type=int, default=5000, help='Number of donation documents (minimum 20).')
+    parser.add_argument('--records', type=int, default=5000)
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument('--batch-size', type=int, default=1000)
-    parser.add_argument('--reset', action='store_true', help='Prompt before dropping the three demo collections.')
+    parser.add_argument('--batch-size', type=int, default=1000, help='Compatibility option; Parquet uses row groups.')
+    parser.add_argument('--reset', action='store_true')
     args = parser.parse_args()
-    if not 20 <= args.records <= 1000000 or not 1 <= args.batch_size <= 10000:
-        parser.error('Records must be 20–1,000,000 and batch size must be 1–10,000.')
-    client, db = connect()
-    try:
-        names = ('donors', 'donations', 'blood_requests')
-        counts = {name: db[name].count_documents({}) for name in names}
-        if args.reset:
-            print(f'Target database: {db.name}; existing document counts: {counts}')
-            print('Stop Streamlit before resetting. Only the three named collections will be dropped.')
-            expected = f'RESET {db.name}'
-            if input(f'Type exactly "{expected}" to confirm deletion: ').strip() != expected:
-                print('Cancelled. No data was deleted.')
-                return
-            # Generate before deleting anything, so generation errors preserve existing data.
-            dataset = generate_dataset(args.records, args.seed)
-            for name in names:
-                db.drop_collection(name)
-        elif any(counts.values()):
-            raise ValueError('Database is not empty. No records changed. Use --reset and confirm to regenerate.')
-        else:
-            dataset = generate_dataset(args.records, args.seed)
-        create_indexes(db)
-        insert_dataset(db, dataset, args.batch_size)
-        print(f'Done: {sum(len(rows) for rows in dataset.values()):,} total documents. '
-              'Run: python -m streamlit run app.py')
-    finally:
-        client.close()
-
+    db = connect()
+    if args.reset:
+        print('Target:', db.root, 'Only management Parquet tables are replaced; old snapshots remain.')
+        if input('Type exactly RESET management: ').strip() != 'RESET management':
+            print('Cancelled. No data changed.')
+            return
+    dataset = generate_dataset(args.records, args.seed)
+    insert_dataset(db, dataset, args.batch_size, replace=args.reset)
+    print({name: len(rows) for name, rows in dataset.items()})
+    print('Run: python -m streamlit run app.py')
 
 if __name__ == '__main__':
     try:
         main()
-    except (ValueError, ConnectionError, EOFError) as exc:
+    except (ValueError, StorageError, OSError, EOFError) as exc:
         raise SystemExit(str(exc)) from None
-    except PyMongoError:
-        raise SystemExit('MongoDB write failed; some batches may have succeeded. '
-                         'Inspect the database, then explicitly reset to retry.') from None

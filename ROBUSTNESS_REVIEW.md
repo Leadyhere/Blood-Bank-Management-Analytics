@@ -1,69 +1,44 @@
-# Robustness review — 12 October 2026
+# Spark migration robustness review — 29 October 2026
 
-## Assessment
+## Scope and findings
 
-The project is suitable for a college demonstration using one local application process and synthetic data. The original 17 tests passed on re-run, but targeted negative tests exposed additional defects. These were fixed and covered by regression tests. No claim is made that testing proves the absence of all possible bugs.
+The active backend is now Spark SQL with local Parquet storage. The five pages and data meanings remain. Old MongoDB source and database records are preserved. This review reports found issues and tested safeguards, not a proof that every possible bug has been eliminated.
 
-## Problems reproduced and corrected
-
-| Finding | Impact before correction | Correction / evidence |
+| Finding / migration risk | Fix or mitigation | Evidence |
 |---|---|---|
-| Client-clock-only expiration check | A clock ten seconds behind MongoDB allowed a unit expired one second earlier to issue in a real-database regression | Atomic claim now checks MongoDB command-time `$$NOW` and records server issue time; regression passes |
-| Loose text and ID validation | `None`, numbers and collections could become donor text or trigger `AttributeError`; whitespace-only automatic IDs were rejected | Explicit string/control-character checks and readable-ID normalization; tests cover invalid types |
-| MongoClient constructor and DB-name errors outside handling | Configuration exceptions could escape the connection wrapper without sanitization/cleanup | Constructor, ping, DB selection and write concern are checked together; errors omit URI details and close any opened client |
-| No bounded wait for a stalled operation | Connect timeout alone did not bound later socket/operation waits | Added 10-second socket/operation timeout; kept five-second server selection timeout |
-| Unacknowledged writes permitted by URI | `w=0` is incompatible with the app's acknowledged-write consistency assumptions | Such connections are rejected explicitly |
-| Partial/invalid history-filter arguments | A single date boundary was silently ignored; unsupported groups could return misleading empty output | Both dates and group are validated; dates normalize to inclusive UTC calendar days |
-| Excluded blood groups displayed as zero | A selected-group chart could imply that the other seven groups had no stock | Selected-group output now contains only that group; All still shows all eight |
-| Large shelf life broke seed chronology | A 1,000-day setting generated some donations before donor registration | Recent-donation range is capped to the simulated year's history; chronology regression passes |
-| No expired units at 25,000 donations | High utilization could remove the expired-stock demonstration entirely | Reserve up to 2% from old candidates as unallocated waste; all three statuses verified at each advertised size under default settings |
-| Seed size / batch / pagination validation gaps | Invalid types could raise raw errors; a zero MongoDB cursor limit could mean unlimited rows | Type/range validation now rejects invalid sizes and unbounded page limits |
-| Extreme numeric settings | Very large day counts could overflow date calculations | Bounded positive settings with clear errors and a friendly app configuration message |
-| Redundant inventory-page calculations | Displaying stock ran every dashboard query, including all request lookups | Inventory page now performs only the required inventory aggregation |
-| Cached connection setup could leak a client | Index/reconciliation setup errors after connection did not close the client | Failed initialization closes the opened client before propagating the sanitized UI error |
+| Java 8 on PATH cannot run Spark 4.0.1 | Project-local Java 21, autodetected or SPARK_JAVA_HOME override | Actual Spark 4.0.1 SQL smoke run |
+| Windows fsync on a read-only Parquet handle raises Bad file descriptor | Open the flushed handle as r+b | Reproduced failure; full 493,220-row import then succeeded |
+| Parquet cannot replace MongoDB atomic row updates directly | Local thread + OS file lock; validate full state; publish inventory and requests with one pointer | FEFO, competing callers and failed-publication regressions |
+| A successful publish can have an uncertain caller acknowledgement | Retry re-reads committed linked units; error message does not falsely promise no change | Injected failure after os.replace, retry issues no excess units |
+| Old import shortcut trusted count and hash label | Repeat import now performs full CSV/content comparison | Modified same-size snapshot rejected |
+| Invalid settings could raise before the friendly UI handler | Move storage/config import inside the guarded block | Invalid-configuration AppTest |
+| Mutable views might collide across simultaneous reports | Query-local Spark sessions and immutable manifest paths | SQL/UI tests; old-snapshot read regression |
+| Dropping MongoDB unique indexes removes duplicate protection | Validate all readable IDs and links before locked publication | Duplicate donor, unit, donation and request tests |
+| User text must not become SQL syntax | Validated enums, escaped literals, literal city contains search | Quote/injection-like text regression |
+| Missing/corrupt snapshot could look like an empty database | Fail closed for malformed manifests, escaped paths and missing referenced files | Corruption regressions |
+| Data-source subtotals can double counts | Keep 'all' separate from ABO categories in Spark SQL | Six-query totals and real-snapshot comparison |
+| Documentation could falsely describe the new engine | Replace MongoDB pipeline/index material with SQL/Parquet plans and local protocol | Updated README, schema, report, viva and source appendix |
 
-The original chart-ID collision had already been corrected during initial implementation and remains covered by the full form-flow test.
+## Executed checks
 
-## Additional checks that passed
+The initial complete Spark migration suite passed 65 tests with no failures/errors/skips. It included actual Spark SQL and Streamlit form tests, not mocked database aggregation. Public CSV-to-Parquet verification checked all 493,220 rows. Read-only migration checked every operational record after saving. Consult VERIFICATION.md for final additional runs and results.
 
-- Existing donor/donation/request validation and unique indexes.
-- Exact blood-group matching, FEFO order and deterministic ID tie-breaking.
-- No overissue after repeated fulfillment, partial fulfillment or insufficient inventory.
-- Lost acknowledgement after a successful unit write: a retry sees the linked unit and does not issue another.
-- Ten simultaneous same-process requests competing for seven units: seven distinct units issued; no duplicates or request overfulfillment.
-- Startup/request-summary recovery, expired/near-expiry boundary calculations and issued-history preservation.
-- Empty and populated pages, forms through actual issuance, group/date filters and explain UI.
-- Existing-data seeding refusal, reset cancellation, and confirmed reset preserving an unrelated sentinel collection in a temporary fixture.
-- Read-only auditor detects malformed references and wrong request summaries without changing them.
-- Dependency consistency check (`pip check`) reported no broken requirements.
-- Real database audits at 1,000, 5,000, 10,000 and 25,000 donations, plus related records.
+## Remaining constraints
 
-Exact final counts, timings and observed outputs are in [VERIFICATION.md](VERIFICATION.md).
+The dashboard refinement adds bounded query caching keyed by immutable file paths, modification times and sizes. A new snapshot invalidates cached reads. Public reports also cache by namespace/version/filter; **Refresh data** clears both caches. Live inventory queries include their current timestamp and do not reuse old current-stock values. New regressions cover cache invalidation and complete-period/missing-day analytical interpretation.
 
-## Remaining limitations and their practical effect
+An extended 67-test run encountered two AppTest timeouts. After reducing repeated query work, the focused UI regressions and subsequent 75-test run passed. Final evidence and the larger final suite are recorded in VERIFICATION.md; the timeout run is not counted as a pass.
 
-1. **One writer process is a requirement.** `RLock` coordinates sessions in one Python process, not independently launched processes or computers. Multiple processes could overfulfill a request even though each unit is claimed atomically. Multi-process writes are unsupported; this review does not convert the demo into a production system.
-2. **No cross-document transaction.** An interruption can leave stored request summaries stale until reconciliation. Reads derive linked-unit totals. A multi-unit fulfillment is incremental, not all-or-nothing.
-3. **Direct edits bypass Python validation.** No database schema validators or foreign-key constraints are installed. Use the app/generator; run `python verify_project.py` to find malformed external changes. Detection is not automatic repair of arbitrary corruption.
-4. **Clock and refresh assumptions.** Issuance checks server command time; dashboard calculations use client UTC. Synchronize clocks. Reports update on interaction, and read-only audits are not snapshot-isolated from simultaneous writes.
-5. **Failure simulation is bounded.** Lost acknowledgements and interruptions were injected in tests. The shared MongoDB service was not deliberately killed, and hardware/power failure, replica failover and disk corruption were not tested.
-6. **No clinical or public deployment guarantees.** No authentication, clinical compatibility, donor eligibility, regulated audit trail or operational blood-product handling is implemented. Synthetic contacts and the 42-day shelf life are demonstration inputs.
-7. **Performance remains local.** The largest measured dataset contains 42,500 total documents (25,000 donations). Generation/audit use memory proportional to data size. Driver timeouts can stop unusually slow queries. No million-record or distributed benchmark is claimed.
-8. **Visual verification is limited.** Streamlit AppTest validates page execution and form interactions. A pixel-level browser review was unavailable because the connected browser tool failed to initialize during initial verification. No screenshots are fabricated.
+- Single-machine local disk; keep one normal app and one importer. Defensive multi-process tests do not establish distributed support.
+- File locks are advisory to cooperating application writers; external edits can bypass them.
+- Full operational snapshots are rewritten on mutation. This is suitable for the small demonstration, not high-volume OLTP.
+- Old/unpublished versions remain intentionally. Disk growth and explicit recovery/retention are operational responsibilities; no automatic cleanup UI is provided.
+- Correct host clock is necessary. There is no independent MongoDB server clock in this version.
+- No multi-machine HDFS/YARN tests, clinical guarantees, authentication, compatibility decisions or power-loss certification.
+- Source coverage is partial, latest year is incomplete, Rh and unit-level fields are absent; the 306 total discrepancy remains disclosed.
+- Spark startup/first-query overhead is real. No claim that this migration makes interactive single-record operations faster.
+- Verified Windows runs emit nonfatal missing-winutils/native-Hadoop warnings. Reads use Spark's Java fallback; writes use PyArrow. No unofficial executables were installed.
+- PySpark 4.0.1's installed collection helper relies on garbage collection to close its socket stream; Python 3.14 unittest can report ResourceWarning. This upstream warning is disclosed, not hidden or represented as a failed business-rule assertion.
+- Streamlit AppTest is an executable UI-path check, not a pixel-level browser screenshot review.
 
-## Reproduce the review
-
-```powershell
-$env:RUN_MONGO_TESTS='1'
-python -m unittest discover -v
-Remove-Item Env:RUN_MONGO_TESTS
-python verify_project.py
-python verify_project.py --scale
-python -m pip check
-```
-
-Tests/scale runs delete only their own random `blood_bank_test_<uuid>` databases. They preserve `blood_bank_analytics`; disposable test fixtures can be regenerated. The normal seed reset remains gated by exact typed confirmation.
-
-## Publishing scope
-
-The GitHub update includes source, tests, configuration example, setup guide, database/aggregation explanations, audit findings, actual verification observations, report, presentation content and viva answers. It excludes `.env`, credentials, the virtual environment, caches and the local MongoDB dataset. New users generate their own synthetic dataset with `seed_data.py`.
+Preserved baseline: backups/mongodb-version-2026-10-29. Its old MongoDB results are historical, not evidence for Spark.

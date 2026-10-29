@@ -7,3 +7,11 @@ __pycache__/
 .venv-*/
 .pytest_cache/
 *.log
+.runtime/
+data/spark/
+artifacts/
+spark-warehouse/
+derby.log
+metastore_db/
+backups/
+qa_results/debug.png

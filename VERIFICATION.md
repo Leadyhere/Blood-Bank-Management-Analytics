@@ -1,97 +1,89 @@
-# Actual local verification
+# Spark migration verification — 29 October 2026
 
-Verified on **12 October 2026** in `C:\Users\avira\Desktop\bda`. This file records executed checks; the manual checklist remains in `TESTING.md`.
+## Final real-data dashboard release
+
+The professional dashboard refinement passed **77 automated tests**, zero failures/errors/skips, in **132.129 seconds**, with RUN_SPARK_TESTS=1. The final suite includes actual Spark SQL, Parquet failure injection, UI forms, cache invalidation and nine analytical-presentation tests. The earlier intermediate 67-test timeout run was investigated; a focused UI rerun passed, followed by the complete 75-test and final 77-test runs.
+
+The interface now has Overview, Trends & patterns, and Source & data tabs, a monthly trend, ABO mix, collection-state ranking, selection-based findings, seven-day daily averages, observed-weekday normalization, partial-period markers and filtered CSV exports. Bounded caches invalidate on new snapshot files; Refresh data clears the caches.
+
+Actual browser screenshots are included at qa_results/dashboard.png and qa_results/patterns.png. qa_results/visual_review.json records the latest browser check; qa_results/full_dataset.json records full-source comparison and seven page/mode checks. The browser review tests the real total, tabs, source/download controls, state filtering and a narrow viewport. Browser automation explicitly waits for the new filtered total rather than assuming a rerun has finished when a spinner is absent.
+
+During live development, an already-running server retained an older imported chart helper. A clean restart picked up the final source; clean-start AppTest checks used the correct helper. Restart the application after replacing its source files.
+
+These results were executed locally after replacing the active MongoDB backend. Historical MongoDB evidence is preserved in backups/mongodb-version-2026-10-29/VERIFICATION.md and is not presented as Spark performance.
 
 ## Environment
 
-- Windows PowerShell, Python 3.14.7.
-- Existing local MongoDB Community Server 8.2.6, standalone service.
-- PyMongo 4.18.3, Streamlit 1.56.0, Pandas 2.3.3, Plotly 6.7.0, Faker 40.43.0, python-dotenv 1.2.2.
-- The local verification virtual environment reused already-installed packages with `--system-site-packages`; missing packages were installed into `.venv`. The README uses a clean virtual environment for a portable setup. Dependency ranges allow compatible updates; these are the exact versions used for this observation.
+Windows PowerShell; Python 3.14.7; PySpark 4.0.1; PyArrow 23.0.1; project-local Eclipse Temurin Java 21 at .runtime/java21. The previous Java 8 on PATH was insufficient; the application selects the project runtime without changing the system Java installation. The existing virtual environment and Streamlit/Pandas/Plotly dependencies were retained. pip check reported "No broken requirements found."
 
-## Automated checks
+Spark SQL smoke query SELECT 1 succeeded and reported version 4.0.1. Importing app, analytics, operations, public_data and database in a fresh Python process reported that pymongo was NOT loaded. No MongoDB connection is required by active application code.
+
+## Migration and full-source verification
+
+- Original source/configuration/docs copied to backups/mongodb-version-2026-10-29 (no secret .env copied).
+- MongoDB read-only migration preserved 2,500 donors, 5,000 donations and 1,000 requests; every migrated record matched after ObjectId-to-string conversion. Source database was not modified.
+- Official CSV imported into Parquet: 493,220 rows; all rows verified against the CSV.
+- Reimport: imported=0, already_present=true, rows=493220.
+- Source hash unchanged: c74746936383d51c92aecdcf4fda07d26d49bd224cd6ac715214a22e47ea44cc.
+- Actual Spark SQL totals: published 9,896,044; ABO 9,895,738; difference 306; 98,644 subtotal observations, 7,588 dates, 13 states.
+
+## Complete automated suite
 
 Executed:
 
-```powershell
-$env:RUN_MONGO_TESTS='1'
+~~~powershell
+$env:RUN_SPARK_TESTS='1'
 .\.venv\Scripts\python.exe -m unittest discover -v
-```
+~~~
 
-**Final robustness result: 46 tests passed, zero failures, zero errors, zero skips.** The final recorded run completed in 8.917 seconds. This is test-suite duration, not a database benchmark. The original 17-test suite also passed before the added negative tests revealed the issues documented in `ROBUSTNESS_REVIEW.md`.
+**65 tests passed, zero failures, zero errors, zero skips**, in **275.908 seconds**. This is test-suite duration, not a performance benchmark. The preliminary 29 storage/business-rule tests also passed in 13.654 seconds.
 
-Coverage includes 20 pure/configuration tests and 26 MongoDB/Streamlit integration tests across `test_project.py` and `test_robustness.py`. AppTest exercised all five pages with empty and 1,000-donation datasets. A separate form test registered a donor, recorded a donation, created a request, issued the unit, enabled historical filters and invoked the explain comparison through the UI. Added checks cover server-time expiry, malformed input, lost acknowledgement, ten competing requests, reset scope, pagination, invalid configuration and read-only corruption detection.
+The suite executes real Spark SQL, actual Parquet saves, same-process and independent-process contention, simulated before/after-publication failures, read-back verification and Streamlit AppTest forms/pages. It does not substitute mocked aggregation results for Spark.
 
-The form test initially exposed identical Plotly charts receiving the same auto-generated Streamlit ID. Explicit chart keys fixed the problem; the final full suite passed. Streamlit emitted its expected bare-mode ScriptRunContext warning when AppTest was initialized outside a live session; no application exceptions remained.
+## Full persisted-dataset UI audit
 
-The generated temporary test database was removed after each suite. Only test fixtures were deleted; the demonstration database was preserved. Those disposable fixtures can be regenerated by rerunning the suite.
+Executed python qa_full_dataset.py. Machine-readable evidence: [qa_results/full_dataset.json](qa_results/full_dataset.json).
 
-## Preserved demonstration database (initial generator)
+Result: **PASS**, Spark 4.0.1, **76.890 seconds** including source comparison, Spark startup, operational audit, seven page/mode checks and explain.
 
-Executed `python seed_data.py --records 5000` on an empty `blood_bank_analytics` database. The generator inserted 8,500 documents:
+Passed:
+- Public Dashboard (displayed 9,896,044).
+- Public Analytics.
+- Simulated Dashboard.
+- Donor Management.
+- Blood Inventory.
+- Blood Requests.
+- Simulated Analytics.
 
-| Collection | Documents |
-|---|---:|
-| donors | 2,500 |
-| donations | 5,000 |
-| blood_requests | 1,000 |
+The public pages used the real 493,220-row snapshot. The management pages used a temporary copy of the actual migrated 8,500 records, so UI expiry-refresh writes did not alter the user's saved operational snapshot.
 
-Observed dashboard snapshot immediately after generation:
+The original management audit reported zero integrity errors. Effective statuses at this check: 1,286 available, 2,913 issued and 801 expired. 642 persisted Available labels had become stale as time passed; current-stock queries already excluded those expired units. Opening a management page normally refreshes those labels. These time-dependent figures are not permanent expectations.
 
-| KPI | Observed value |
-|---|---:|
-| Registered donors | 2,500 |
-| Total donations | 5,000 |
-| Available units | 1,979 |
-| Open requests, including partial | 66 |
-| Expired unissued units | 108 |
-| Available units within seven days of expiry | 206 |
+Actual Spark physical plan and an observed elapsed query time are included in full_dataset.json. Do not reuse old MongoDB index timings or claim these observations establish Spark superiority.
 
-These values depend on the generation date, seed, settings and subsequent activity. Time passing changes expiry-based metrics. Do not treat them as permanent expected values on another date.
+## Scale checks
 
-This existing dataset was intentionally preserved during the robustness review. The revised generator reserves an expired-waste sample, so a newly generated dataset can have different status/request distributions even with the same seed. Revised-generator observations are recorded below.
+Executed python verify_project.py --scale in an isolated temporary storage directory. **All four sizes passed with zero audit errors and zero stale status flags.**
 
-A final read-only audit of all 8,500 persisted documents confirmed donor references and blood-group matches, donation/expiration ordering, valid issued-request links, unexpired issue timestamps, and agreement between stored fulfillment totals/statuses and linked units. The reset prompt was also tested with `cancel`: it deleted nothing, and collection counts remained 2,500 / 5,000 / 1,000.
+| Donation rows | Total operational rows | Available | Issued | Expired | Generate/save seconds | Audit seconds |
+|---|---:|---:|---:|---:|---:|---:|
+| 1,000 | 1,700 | 368 | 477 | 155 | 1.264 | 32.700 |
+| 5,000 | 8,500 | 1,952 | 2,806 | 242 | 0.338 | 6.568 |
+| 10,000 | 17,000 | 4,013 | 5,691 | 296 | 0.675 | 7.446 |
+| 25,000 | 42,500 | 10,055 | 14,329 | 616 | 1.383 | 8.100 |
 
-## Real explain observation
+Audit includes independent record checks compared with Spark KPI/chart outputs. The first audit includes JVM startup. Scale and full-dataset QA overlapped on this machine; timings are observations, not controlled comparative benchmarks. Temporary test data was removed automatically and is reproducible from the generator; live data was not deleted.
 
-Executed `python analytics.py --explain` for the default O+ inventory aggregation on the 5,000-donation dataset:
+## Reproduced bugs and fixes
 
-| Access path | executionTimeMillis | totalDocsExamined | totalKeysExamined | nReturned |
-|---|---:|---:|---:|---:|
-| Forced collection scan | 5 | 5,000 | 0 | 1 |
-| inventory_fefo index | 3 | 217 | 217 | 1 |
+- Windows read-only file flush raised OSError Bad file descriptor; writable flush handle fixed it.
+- Import idempotency originally relied on stored hash/count; full content comparison now detects changed same-size data.
+- Invalid configuration could raise before the Streamlit error guard; guarded imports fixed it.
+- An uncertain save acknowledgement must not imply that nothing committed; error wording and retry tests now handle that case.
+- MongoDB-specific updates, queries, ObjectIds, exceptions and index UI were replaced with validated snapshots, string IDs, Spark SQL and physical-plan output.
 
-This is one real local observation. The forced scan simulates an unindexed access path without dropping indexes. It is not a controlled before/after hardware benchmark. Cache state, planner behavior and dataset size affect timing; rerun and inspect raw output before drawing broader conclusions.
+## Warnings and untested areas
 
-## Application verification limits
+Spark emits nonfatal missing-winutils/native-Hadoop warnings on this Windows setup; verified Parquet reads use its Java fallback and writes use PyArrow. No unofficial Hadoop binary was installed. Python 3.14 unittest reported ResourceWarning from PySpark 4.0.1's collection socket cleanup; the installed helper relies on garbage collection. Expected Streamlit bare-mode warnings occurred during AppTest. These were not assertion failures and are disclosed rather than hidden.
 
-Streamlit was started on `http://127.0.0.1:8501` using the seeded demonstration database. Automated page and form tests establish rendering-path and interaction correctness in Streamlit's test environment, but are not a pixel-level browser audit. The connected browser inspection tool failed to initialize on two attempts, so no browser screenshot review is claimed. Manual screenshot capture and live presentation rehearsal remain for the student.
-
-The live Streamlit health endpoint returned `ok`. All nine Python files passed compilation. `pip check` reported `No broken requirements found.` Documentation links to local Markdown files resolved, and the report abstract contained 182 words.
-
-No Atlas, independent multi-process writers, replica-set transactions, clinical workflow, million-record dataset or distributed performance was tested. Only the supported local single-process demonstration is claimed.
-
-## Revised-generator scale verification
-
-Executed `python verify_project.py --scale` after the fixes. Each size was generated, bulk-inserted, audited and queried on the real local MongoDB server in a random temporary database. That database was removed afterward. **All four sizes passed with zero audit errors**, including independent checks of all six dashboard KPIs and all chart totals/buckets. The separate audit of the preserved 8,500-document demo also passed with zero errors and zero stale flags.
-
-| Donations | Total documents | Available | Issued | Expired | Generate (s) | Insert (s) | Audit (s) | Dashboard function (s) |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1,000 | 1,700 | 386 | 480 | 134 | 0.074 | 0.029 | 0.113 | 0.098 |
-| 5,000 | 8,500 | 1,979 | 2,833 | 188 | 0.042 | 0.295 | 0.506 | 0.427 |
-| 10,000 | 17,000 | 4,049 | 5,646 | 305 | 0.092 | 0.709 | 0.987 | 0.810 |
-| 25,000 | 42,500 | 10,095 | 14,405 | 500 | 0.231 | 2.000 | 2.572 | 2.161 |
-
-The dashboard measurement times the Python aggregation/report function, not a browser page load. These are single-run observations on this machine; test activity overlapped part of the scale run, caches differ, and initial Faker setup can affect the first generation. They are not guarantees or controlled comparative benchmarks.
-
-The O+ explain query measured these access paths during that run:
-
-| Donations | Scan docs | Indexed docs | Indexed keys | Scan ms | Index ms |
-|---|---:|---:|---:|---:|---:|
-| 1,000 | 1,000 | 48 | 48 | 1 | 1 |
-| 5,000 | 5,000 | 217 | 217 | 8 | 1 |
-| 10,000 | 10,000 | 559 | 559 | 13 | 1 |
-| 25,000 | 25,000 | 1,336 | 1,336 | 28 | 5 |
-
-The indexed path inspected fewer documents in every measured dataset. Timing varies; no general speedup ratio is claimed. `nReturned` was 1 for both paths at every size on this server version.
+No HDFS/YARN cluster, multi-machine filesystem, power-loss test, clinical workflow or pixel-level browser screenshot audit was performed. There is no assertion that all conceivable defects have been found. Local clock correctness, snapshot retention/disk growth and external edits remain operational limitations; see ROBUSTNESS_REVIEW.md.
